@@ -20,9 +20,15 @@ declare_id!("Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS");
 pub mod daddy_staking_contract {
     use super::*;
 
-    pub fn initialize(ctx: Context<Initialize>, stake_mode: u8) -> Result<()> {
+    pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
+
+        Ok(())
+    }
+
+    pub fn init_user_pool(ctx: Context<InitUserPool>, stake_mode: u8) -> Result<()> {
         let user_pool = &mut ctx.accounts.user_pool;
         user_pool.owner = ctx.accounts.owner.key();
+        user_pool.rand = ctx.accounts.rand.key();
         user_pool.stake_mode = stake_mode;
         let timestamp = Clock::get()?.unix_timestamp;
         user_pool.stake_time = timestamp;
@@ -30,9 +36,10 @@ pub mod daddy_staking_contract {
         Ok(())
     }
 
+
     #[access_control(user(&ctx.accounts.user_pool, &ctx.accounts.owner))]
     pub fn stake_nft(
-        ctx: Context<StakeNftToPool>, 
+        ctx: Context<StakeNft>, 
         rarity: u8,
     ) -> Result<()> {
 
@@ -42,8 +49,8 @@ pub mod daddy_staking_contract {
         ctx.accounts.global_authority.total_nft_count += 1;
 
         let cpi_accounts = Transfer {
-            from: ctx.accounts.user_nft_token_account.to_account_info(),
-            to: ctx.accounts.dest_nft_token_account.to_account_info(),
+            from: ctx.accounts.source_nft_account.clone(),
+            to: ctx.accounts.dest_nft_account.clone(),
             authority: ctx.accounts.owner.to_account_info()
         };
         let token_program = ctx.accounts.token_program.clone();
@@ -57,7 +64,7 @@ pub mod daddy_staking_contract {
 
     #[access_control(user(&ctx.accounts.user_pool, &ctx.accounts.owner))]
     pub fn withdraw_nft(
-        ctx: Context<WithdrawNftFromPool>, 
+        ctx: Context<UnstakeNft>, 
         global_bump: u8,
     ) -> Result<()> {
 
@@ -72,8 +79,8 @@ pub mod daddy_staking_contract {
         let seeds = &[GLOBAL_AUTHORITY_SEED.as_bytes(), &[global_bump]];
         let signer = &[&seeds[..]];
         let cpi_accounts = Transfer {
-            from: ctx.accounts.staked_nft_token_account.to_account_info(),
-            to: ctx.accounts.user_nft_token_account.to_account_info(),
+            from: ctx.accounts.source_nft_account.clone(),
+            to: ctx.accounts.dest_nft_account.clone(),
             authority: ctx.accounts.global_authority.to_account_info()
         };
         let token_program = ctx.accounts.token_program.clone();
@@ -94,7 +101,7 @@ pub mod daddy_staking_contract {
         let timestamp = Clock::get()?.unix_timestamp;
 
         let user_pool = &mut ctx.accounts.user_pool;
-        let reward: u64 = user_pool.claim_reward(
+        let reward: u64 = user_pool.calc_reward(
             timestamp
         )?;
 
@@ -116,17 +123,8 @@ pub mod daddy_staking_contract {
     }
 }
 
-
 #[derive(Accounts)]
 pub struct Initialize<'info> {
-    #[account(
-        init_if_needed,
-        seeds = [USER_POOL_SEED.as_ref()],
-        bump,
-        payer = owner,
-        space=size_of::<UserPool>() + 8,
-    )]
-    pub user_pool: Account<'info, UserPool>,
 
     #[account(
         init_if_needed,
@@ -141,13 +139,32 @@ pub struct Initialize<'info> {
     pub owner: Signer<'info>,
 
     pub system_program: Program<'info, System>,
+}
 
+#[derive(Accounts)]
+pub struct InitUserPool<'info> {
+    #[account(mut)]
+    pub owner: Signer<'info>,
+
+    #[account(
+        init_if_needed,
+        seeds = [(*rand.key).as_ref()],
+        bump,
+        payer = owner,
+        space=size_of::<UserPool>() + 8,
+    )]
+    pub user_pool: Account<'info, UserPool>,
+
+    /// CHECK: This is not dangerous because we don't read or write from this account
+    pub rand : AccountInfo<'info>,
+
+    pub system_program: Program<'info, System>,
 }
 
 
 #[derive(Accounts)]
-#[instruction(global_bump: u8, staked_nft_bump: u8)]
-pub struct StakeNftToPool<'info> {
+#[instruction(global_bump: u8)]
+pub struct StakeNft<'info> {
     #[account(mut)]
     pub owner: Signer<'info>,
 
@@ -161,33 +178,29 @@ pub struct StakeNftToPool<'info> {
     )]
     pub global_authority: Account<'info, GlobalPool>,
 
-    #[account(mut)]
-    pub user_nft_token_account: Account<'info, TokenAccount>,
-
-    #[account(
-        init_if_needed,
-        payer = owner,
-        seeds = ["staked-nft".as_ref(), nft_mint.key.as_ref()],
-        bump,
-        token::mint = nft_mint,
-        token::authority = user_pool
-    )]
-    pub dest_nft_token_account: Account<'info, TokenAccount>,
+    /// CHECK: This is not dangerous because we don't read or write from this account
+    #[account(mut,owner=spl_token::id())]
+    nft_mint : AccountInfo<'info>,
 
     /// CHECK: This is not dangerous because we don't read or write from this account
-    pub nft_mint: AccountInfo<'info>,
+    #[account(mut,owner=spl_token::id())]
+    source_nft_account : AccountInfo<'info>,
+
+    /// CHECK: This is not dangerous because we don't read or write from this account
+    #[account(mut,owner=spl_token::id())]
+    dest_nft_account : AccountInfo<'info>,
 
     /// CHECK: This is not dangerous because we don't read or write from this account
     pub token_program: AccountInfo<'info>,
-    // pub associated_token_program: Program<'info, AssociatedToken>,
+
     pub system_program: Program<'info, System>,
     pub rent: Sysvar<'info, Rent>
 }
 
 
 #[derive(Accounts)]
-#[instruction(global_bump: u8, staked_nft_bump: u8)]
-pub struct WithdrawNftFromPool<'info> {
+#[instruction(global_bump: u8)]
+pub struct UnstakeNft<'info> {
     #[account(mut)]
     pub owner: Signer<'info>,
 
@@ -201,21 +214,17 @@ pub struct WithdrawNftFromPool<'info> {
     )]
     pub global_authority: Account<'info, GlobalPool>,
 
-    #[account(
-        mut,
-        constraint = user_nft_token_account.owner == owner.key()
-    )]
-    pub user_nft_token_account: Account<'info, TokenAccount>,
-
-    #[account(
-        mut,
-        seeds = ["staked-nft".as_ref(), nft_mint.key.as_ref()],
-        bump = staked_nft_bump
-    )]
-    pub staked_nft_token_account: Account<'info, TokenAccount>,
+    /// CHECK: This is not dangerous because we don't read or write from this account
+    #[account(mut,owner=spl_token::id())]
+    nft_mint : AccountInfo<'info>,
 
     /// CHECK: This is not dangerous because we don't read or write from this account
-    pub nft_mint: AccountInfo<'info>,
+    #[account(mut,owner=spl_token::id())]
+    source_nft_account : AccountInfo<'info>,
+
+    /// CHECK: This is not dangerous because we don't read or write from this account
+    #[account(mut,owner=spl_token::id())]
+    dest_nft_account : AccountInfo<'info>,
 
     /// CHECK: This is not dangerous because we don't read or write from this account
     pub token_program: AccountInfo<'info>,

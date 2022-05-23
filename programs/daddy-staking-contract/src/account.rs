@@ -9,12 +9,12 @@ pub struct GlobalPool {
     pub total_nft_count: u64   // 8
 }
 
-
 #[account]
 #[derive(Default)]
 pub struct UserPool {
     // 380
     pub owner: Pubkey,                       // 32
+    pub rand : Pubkey,
     pub item_count: u8,                     // 1
     pub nft_mint_list: [Pubkey; NFT_STAKE_MAX_COUNT], // 32 * 10 = 320
     pub rarity_list: [u8; NFT_STAKE_MAX_COUNT], // 1 * 10 = 10
@@ -73,7 +73,7 @@ impl UserPool {
         Ok(self.item_count)
     }
 
-    pub fn claim_reward(&mut self, now: i64) -> Result<u64> {
+    pub fn calc_reward(&mut self, now: i64) -> Result<u64> {
         let mut total_reward: u64 = 0;
         if self.stake_mode == 0 {
             total_reward = 3;
