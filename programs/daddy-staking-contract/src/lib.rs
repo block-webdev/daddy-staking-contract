@@ -2,6 +2,7 @@ use anchor_lang::prelude::*;
 use anchor_spl::token::{self, CloseAccount, Mint, SetAuthority, TokenAccount, Transfer, Token};
 use spl_token::instruction::AuthorityType;
 use std::mem::size_of;
+use spl_token::state;
 
 pub mod account;
 pub mod error;
@@ -14,7 +15,7 @@ use error::*;
 use utils::*;
 
 
-declare_id!("Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS");
+declare_id!("A4RDTZxpskjCkY9mWgkovkx5aXUYEwZHJkQ6uWi1nWWH");
 
 #[program]
 pub mod daddy_staking_contract {
@@ -32,6 +33,7 @@ pub mod daddy_staking_contract {
         user_pool.stake_mode = stake_mode;
         let timestamp = Clock::get()?.unix_timestamp;
         user_pool.stake_time = timestamp;
+        user_pool.reward_time = timestamp;
 
         Ok(())
     }
@@ -40,6 +42,7 @@ pub mod daddy_staking_contract {
     #[access_control(user(&ctx.accounts.user_pool, &ctx.accounts.owner))]
     pub fn stake_nft(
         ctx: Context<StakeNft>, 
+        global_bump: u8,
         rarity: u8,
     ) -> Result<()> {
 
@@ -63,7 +66,7 @@ pub mod daddy_staking_contract {
     }
 
     #[access_control(user(&ctx.accounts.user_pool, &ctx.accounts.owner))]
-    pub fn withdraw_nft(
+    pub fn unstake_nft(
         ctx: Context<UnstakeNft>, 
         global_bump: u8,
     ) -> Result<()> {
@@ -93,18 +96,28 @@ pub mod daddy_staking_contract {
         Ok(())
     }
 
-    #[access_control(user(&ctx.accounts.user_pool, &ctx.accounts.owner))]
-    pub fn claim_reward(
-        ctx: Context<ClaimReward>,
-        global_bump: u8,
+    pub fn get_reward(
+        ctx: Context<GetRewardAmount>,
     ) -> Result<()> {
         let timestamp = Clock::get()?.unix_timestamp;
 
         let user_pool = &mut ctx.accounts.user_pool;
-        let reward: u64 = user_pool.calc_reward(
+        let mut reward: u64 = user_pool.calc_reward(
             timestamp
         )?;
+        let decimals = ctx.accounts.reward_mint.decimals;
+        let x: i32 = 10;
+        reward = reward * (x.pow(decimals as u32)) as u64;
+        user_pool.reward_amount = reward;
 
+        Ok(())
+    }
+
+    pub fn claim_reward(
+        ctx: Context<ClaimReward>,
+        global_bump: u8,
+        reward_amount: u64,
+    ) -> Result<()> {
         let seeds = &[GLOBAL_AUTHORITY_SEED.as_bytes(), &[global_bump]];
         let signer = &[&seeds[..]];
         let cpi_accounts = Transfer {
@@ -116,7 +129,7 @@ pub mod daddy_staking_contract {
         let transfer_ctx = CpiContext::new_with_signer(token_program, cpi_accounts, signer);
         token::transfer(
             transfer_ctx,
-            reward
+            reward_amount
         )?;
 
         Ok(())
@@ -194,7 +207,7 @@ pub struct StakeNft<'info> {
     pub token_program: AccountInfo<'info>,
 
     pub system_program: Program<'info, System>,
-    pub rent: Sysvar<'info, Rent>
+    // pub rent: Sysvar<'info, Rent>
 }
 
 
@@ -204,7 +217,7 @@ pub struct UnstakeNft<'info> {
     #[account(mut)]
     pub owner: Signer<'info>,
 
-    #[account(mut)]
+    #[account(mut, constraint = owner.key() == user_pool.owner)]
     pub user_pool: Account<'info, UserPool>,
 
     #[account(
@@ -228,19 +241,24 @@ pub struct UnstakeNft<'info> {
 
     /// CHECK: This is not dangerous because we don't read or write from this account
     pub token_program: AccountInfo<'info>,
-    pub system_program: Program<'info, System>,
-    pub rent: Sysvar<'info, Rent>
 }
 
 
 #[derive(Accounts)]
-#[instruction(global_bump: u8, staked_nft_bump: u8)]
+pub struct GetRewardAmount<'info> {
+    #[account(mut)]
+    pub user_pool: Account<'info, UserPool>,
+
+    /// CHECK: This is not dangerous because we don't read or write from this account
+    #[account(mut,owner=spl_token::id())]
+    reward_mint : Account<'info, Mint>,
+}
+
+#[derive(Accounts)]
+#[instruction(global_bump: u8)]
 pub struct ClaimReward<'info> {
     #[account(mut)]
     pub owner: Signer<'info>,
-
-    #[account(mut)]
-    pub user_pool: Account<'info, UserPool>,
 
     #[account(
         mut,

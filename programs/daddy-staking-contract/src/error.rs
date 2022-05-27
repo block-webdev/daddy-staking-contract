@@ -15,5 +15,7 @@ pub enum StakingError {
     #[msg("Withdraw NFT Index OverFlow")]
     IndexOverflow,
     #[msg("Insufficient Lamports")]
-    LackLamports
+    LackLamports,
+    #[msg("Invalid reward amount")]
+    InvalidRewardAmount
 }

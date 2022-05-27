@@ -1,13 +1,16 @@
 [features]
 seeds = false
 [programs.localnet]
-daddy_staking_contract = "Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS"
+daddy_staking_contract = "A4RDTZxpskjCkY9mWgkovkx5aXUYEwZHJkQ6uWi1nWWH"
+
+[programs.devnet]
+daddy_staking_contract = "A4RDTZxpskjCkY9mWgkovkx5aXUYEwZHJkQ6uWi1nWWH"
 
 [registry]
 url = "https://anchor.projectserum.com"
 
 [provider]
-cluster = "localnet"
+cluster = "devnet"
 wallet = "/root/.config/solana/id.json"
 
 [scripts]

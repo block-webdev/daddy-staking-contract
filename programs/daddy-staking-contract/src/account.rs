@@ -12,15 +12,16 @@ pub struct GlobalPool {
 #[account]
 #[derive(Default)]
 pub struct UserPool {
-    // 380
+    // 420
     pub owner: Pubkey,                       // 32
-    pub rand : Pubkey,
+    pub rand : Pubkey,                       // 32
     pub item_count: u8,                     // 1
     pub nft_mint_list: [Pubkey; NFT_STAKE_MAX_COUNT], // 32 * 10 = 320
     pub rarity_list: [u8; NFT_STAKE_MAX_COUNT], // 1 * 10 = 10
     pub reward_time: i64,                    // 8
     pub stake_mode: u8, // 1, value = 0 : active, 1 : passive - 7 days, 2 : passive - 30 days
     pub stake_time: i64,       // 8
+    pub reward_amount: u64,       // 8
 }
 // impl Default for UserPool {
 //     #[inline]
@@ -98,6 +99,9 @@ impl UserPool {
                 total_reward += 6 + self.rarity_list[i as usize] as u64;
             }
         }
+
+        let days = (now - self.reward_time) / DAY;
+        total_reward = total_reward * days as u64;
 
         self.reward_time = now;
         Ok(total_reward)
